@@ -6,77 +6,15 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <string>
+#include <memory>
 
+#include "wwaver.h"
+#include "loader.h"
 #include "shader.h"
 #include "VAO.h"
 #include "VBO.h"
 #include <sciplot/sciplot.hpp>
 using namespace sciplot;
-
-// WAVE file header structure
-struct Twavheader
-{
-    char chunk_ID[4];              //  4  riff_mark[4];
-    uint32_t chunk_size;           //  4  file_size;
-    char format[4];                //  4  wave_str[4];
- 
-    char sub_chunk1_ID[4];         //  4  fmt_str[4];
-    uint32_t sub_chunk1_size;      //  4  pcm_bit_num;
-    uint16_t audio_format;         //  2  pcm_encode;
-    uint16_t num_channels;         //  2  sound_channel;
-    uint32_t sample_rate;          //  4  pcm_sample_freq;
-    uint32_t byte_rate;            //  4  byte_freq;
-    uint16_t block_align;          //  2  block_align;
-    uint16_t bits_per_sample;      //  2  sample_bits;
- 
-    char sub_chunk2_ID[4];         //  4  data_str[4];
-    uint32_t sub_chunk2_size;      //  4  sound_size;
-};                                 // 44  bytes TOTAL
-
-std::tuple<Twavheader, std::vector<int16_t>> read_wav(std::string fname)
-{
-    // Open the WAV file
-    std::ifstream wavfile(fname, std::ios::binary);
- 
-    if(wavfile.is_open())
-    {
-        // Read the WAV header
-        Twavheader wav;
-        wavfile.read(reinterpret_cast<char*>(&wav), sizeof(Twavheader));
- 
-        // If the file is a valid WAV file
-        if (std::string(wav.format, 4) != "WAVE" || std::string(wav.chunk_ID, 4) != "RIFF")
-        {
-            wavfile.close();
-            std::cerr << "Not a WAVE or RIFF!" << std::endl;
-            throw;
-        }
- 
-        // Properties of WAV File
-        std::cout << "FileName:" << fname << std::endl;
-        std::cout << "File size:" << wav.chunk_size+8 << std::endl;
-        std::cout << "Resource Exchange File Mark:" << std::string(wav.chunk_ID, 4) << std::endl;
-        std::cout << "Format:" << std::string(wav.format, 4) << std::endl;
-        std::cout << "Channels: " << wav.num_channels << std::endl;
-        std::cout << "Sample Rate: " << wav.sample_rate << " Hz" << std::endl;
-        std::cout << "Bits Per Sample: " << wav.bits_per_sample << " bits" << std::endl;
- 
-        // Read wave data
-        while (std::string(wav.sub_chunk2_ID, 4) != "data") {
-            wavfile.seekg(wav.sub_chunk2_size, std::ios::cur);
-            wavfile.read(reinterpret_cast<char*>(&wav.sub_chunk2_ID), 4);
-            wavfile.read(reinterpret_cast<char*>(&wav.sub_chunk2_size), 4);
-        }
-        std::vector<int16_t> audio_data( wav.sub_chunk2_size / sizeof(int16_t) );
-        wavfile.read(reinterpret_cast<char*>( audio_data.data() ), wav.sub_chunk2_size );
-        wavfile.close();  // Close audio file
-
-        std::cout << "Number of samples: " << wav.sub_chunk2_size / sizeof(int16_t) << std::endl;
-
-        return {wav, audio_data};
-    }
-    throw;
-}
 
 template <typename T>
 void draw_wave(const std::vector<T>& audio_data, const char* filename, int width=2560, int height=1440) {
@@ -90,50 +28,23 @@ void draw_wave(const std::vector<T>& audio_data, const char* filename, int width
 }
 
 int main(int argc, char* argv[]) {
-    auto [header, data] = read_wav(argv[1]);
-    std::vector<float> data_float(data.begin(), data.end()); //convert to float for fft
 
-    int nSamples = data.size();
-    int sampleRate = header.sample_rate;
-    int sampleSize = header.bits_per_sample / 8;
-    int nChannels = header.num_channels;
+    Loader loader;
+    loader.read_wav(argv[1]);
 
-    if (nChannels != 2 ) {
-        std::cerr << "Unsupported number of audio channels: " << nChannels << std::endl;
-        return -1;
-    }
+    int nSamples = loader.m_nSamples;
+    int sampleRate = loader.m_sampleRate;
+    int sampleSize = loader.m_sampleSize;
+    int nChannels = loader.m_nChannels;
+    auto data = loader.m_samples;
+    auto data_float = loader.m_samplesFloat;
 
-    /* Initialize the library */
-    if (!glfwInit())
-        return -1;
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_COMPAT_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-
-    GLFWwindow* window;
-    const int width = 800;
-    const int height = 600;
-    /* Create a windowed mode window and its OpenGL context */
-    window = glfwCreateWindow(width, height, "wwave", NULL, NULL);
-    if (!window) {
-        glfwTerminate();
-        return -1;
-    }
-
-    /* Make the window's context current */
-    glfwMakeContextCurrent(window);
-
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-    std::cout << "Failed to initialize GLAD" << std::endl;
-    return -1;
-    }
-
-    glViewport(0, 0, width, height);
+    std::shared_ptr<Wwaver> waver = std::make_shared<Wwaver>(800, 600);
+    GLFWwindow* window = waver->m_window;
 
     // Shaders
-    Shader waveShader("src/shaders/wave.vert", "src/shaders/basic.frag");
-    Shader dftShader("src/shaders/dft.vert", "src/shaders/basic.frag");
+    Shader waveShader = waver->m_shaders[0];
+    Shader dftShader = waver->m_shaders[1];
 
     // Buffers
     VAO vao_wave, vao_dft;
