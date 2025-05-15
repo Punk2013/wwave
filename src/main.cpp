@@ -17,6 +17,7 @@ enum class mode {
     wave,
     DFT,
     waveAndDFT,
+    levelLine,
 };
 
 // WAVE file header structure
@@ -140,6 +141,7 @@ int main(int argc, char* argv[]) {
     // Shaders
     Shader waveShader("src/shaders/wave.vert", "src/shaders/basic.frag");
     Shader dftShader("src/shaders/dft.vert", "src/shaders/basic.frag");
+    Shader levelLineShader("src/shaders/fullscreen.vert", "src/shaders/levelline.frag");
 
     // Buffers
     VAO vao_wave, vao_dft;
@@ -150,13 +152,17 @@ int main(int argc, char* argv[]) {
     vao_wave.attribute(vbo_wave, 0, GL_SHORT, nChannels, 0, true);
     vao_dft.attribute(vbo_dft, 0, GL_FLOAT, 1, 0);
 
+    GLuint functionTexture;
+    glGenTextures(1, &functionTexture);
+    glBindTexture(GL_TEXTURE_BUFFER, functionTexture);
+    glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, vbo_wave.ID);
 
     float deltaTime = 0.0f;
     int pos = 0;
     int posPerChannel = 0;
     int displayedSamples = sampleRate;
     int displayedSamplesPerChannel = displayedSamples / nChannels;
-    mode mode = mode::waveAndDFT;
+    mode mode = mode::levelLine;
 
     std::vector<float> dft(sampleRate);
     fftwf_plan plan;
@@ -212,6 +218,21 @@ int main(int argc, char* argv[]) {
             dftShader.setVec4("uColor", 0.8, 0.5, 0.6, 1.0);
 
             glDrawArrays(GL_LINE_STRIP, posPerChannel, displayedSamplesPerChannel);
+        }
+
+        if (mode == mode::levelLine) {
+            levelLineShader.use();
+            vao_wave.bind();
+
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_BUFFER, functionTexture);
+
+            levelLineShader.setInt("functionSampler", 0);
+            levelLineShader.setVec2("uRes", float(width), float(height));
+            levelLineShader.setInt("uNSamples", displayedSamplesPerChannel);
+            levelLineShader.setInt("uPos", posPerChannel);
+
+            glDrawArrays(GL_TRIANGLES, 0, 3);
         }
 
         // Calculate frametime and playback time
