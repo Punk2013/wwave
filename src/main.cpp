@@ -13,6 +13,12 @@
 #include <sciplot/sciplot.hpp>
 using namespace sciplot;
 
+enum class mode {
+    wave,
+    DFT,
+    waveAndDFT,
+};
+
 // WAVE file header structure
 struct Twavheader
 {
@@ -150,6 +156,7 @@ int main(int argc, char* argv[]) {
     int posPerChannel = 0;
     int displayedSamples = sampleRate;
     int displayedSamplesPerChannel = displayedSamples / nChannels;
+    mode mode = mode::waveAndDFT;
 
     std::vector<float> dft(sampleRate);
     fftwf_plan plan;
@@ -159,7 +166,7 @@ int main(int argc, char* argv[]) {
     float lastFrame = audioStart;
     float timePlayed = 0.0f;
 
-    /* Loop until the user closes the window */
+    /* Loop until the user closes the window or we are out of samples*/
     while (!glfwWindowShouldClose(window) && (nSamples - pos >= displayedSamples)) {
         /* Render here */
         glClearColor(0.1f, 0.1f, 0.3f, 1.0f);
@@ -169,6 +176,8 @@ int main(int argc, char* argv[]) {
         // int frameSamplesPerChannel = std::round(sampleRate * deltaTime);
         // displayedSamples = 600;
         // displayedSamplesPerChannel = displayedSamples / nChannels;
+        
+        //position of the first sample to be displayed; samples alternate channels lrlrlrlr
         pos = std::round(sampleRate * nChannels * timePlayed);
         posPerChannel = pos / nChannels;
 
@@ -180,25 +189,30 @@ int main(int argc, char* argv[]) {
         auto p = std::minmax_element(dft.begin(), dft.end());
         float dftmax = std::max(abs(*p.first), abs(*p.second));
 
-        vbo_dft.data(displayedSamples * sizeof(float), dft.data(), GL_DYNAMIC_DRAW);
+        // mode specific
+        if (mode == mode::DFT || mode == mode::waveAndDFT) {
+            vbo_dft.data(displayedSamples * sizeof(float), dft.data(), GL_DYNAMIC_DRAW);
 
-        dftShader.use();
-        vao_dft.bind();
+            dftShader.use();
+            vao_dft.bind();
 
-        dftShader.setInt("uNSamples", displayedSamples);
-        dftShader.setFloat("uDftmax", dftmax);
-        dftShader.setVec4("uColor", 0.4, 0.5, 0.6, 1.0);
+            dftShader.setInt("uNSamples", displayedSamples);
+            dftShader.setFloat("uDftmax", dftmax);
+            dftShader.setVec4("uColor", 0.4, 0.5, 0.6, 1.0);
 
-        glDrawArrays(GL_LINE_STRIP, 0, displayedSamples);
+            glDrawArrays(GL_LINE_STRIP, 0, displayedSamples);
+        }
 
-        waveShader.use();
-        vao_wave.bind();
+        if (mode == mode::wave || mode == mode::waveAndDFT) {
+            waveShader.use();
+            vao_wave.bind();
 
-        waveShader.setInt("uNSamples", displayedSamplesPerChannel);
-        waveShader.setInt("uPos", posPerChannel);
-        dftShader.setVec4("uColor", 0.8, 0.5, 0.6, 1.0);
+            waveShader.setInt("uNSamples", displayedSamplesPerChannel);
+            waveShader.setInt("uPos", posPerChannel);
+            dftShader.setVec4("uColor", 0.8, 0.5, 0.6, 1.0);
 
-        glDrawArrays(GL_LINE_STRIP, posPerChannel, displayedSamplesPerChannel);
+            glDrawArrays(GL_LINE_STRIP, posPerChannel, displayedSamplesPerChannel);
+        }
 
         // Calculate frametime and playback time
         float currentFrame = glfwGetTime();
