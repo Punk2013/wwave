@@ -164,7 +164,7 @@ int main(int argc, char* argv[]) {
     int displayedSamplesPerChannel = displayedSamples / nChannels;
     mode mode = mode::levelLine;
 
-    std::vector<float> dft(sampleRate);
+    std::vector<float> dft(displayedSamples);
     fftwf_plan plan;
 
     FILE* audio = popen(("audacious --headless " + std::string(argv[1])).c_str(), "r");
@@ -184,7 +184,8 @@ int main(int argc, char* argv[]) {
         // displayedSamplesPerChannel = displayedSamples / nChannels;
         
         //position of the first sample to be displayed; samples alternate channels lrlrlrlr
-        pos = std::round(sampleRate * nChannels * timePlayed);
+        pos = std::round(sampleRate * nChannels * timePlayed) - displayedSamples;
+        pos = std::max(0, pos);
         posPerChannel = pos / nChannels;
 
         // Discrete Fourier transform
